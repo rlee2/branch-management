@@ -23,8 +23,8 @@ A collection of Python scripts to automate multi-repository workflows on GitHub,
    ```
 
 3. **Repository Lists**:
-   - `repos.txt`: Used by branching and PR scripts.
-   - `repos-release.txt`: Used by the release script.
+   - `repos-full.txt`: The **full list** of all repositories managed by this project. Used by branching and PR scripts to track the entire codebase.
+   - `repos-release.txt`: A subset containing only the **active release repositories**. This list defines which repositories are currently undergoing release merging and final release creation.
    Format: `owner/repository` (one per line, `#` for comments).
 
 ## Usage
@@ -32,14 +32,14 @@ A collection of Python scripts to automate multi-repository workflows on GitHub,
 ### 1. Create Branches
 Creates and pushes a new branch (from `develop`) across all repos.
 ```bash
-# Uses repos.txt
+# Uses repos-full.txt
 ./create_branches.sh my-feature-branch
 ```
 
 ### 2. Create Pull Requests
 Creates PRs to `master` (default) or a specified branch.
 ```bash
-# Uses repos.txt
+# Uses repos-full.txt
 python3 create_prs.py my-feature-branch [base-branch]
 ```
 - **Smart Titles**: Branches starting with `release-` get formatted titles.
@@ -56,5 +56,5 @@ python3 create_releases.py v1.0.0
 - `create_branches.py`/`.sh`: Initial branching logic.
 - `create_prs.py`: GitHub PR automation with interactive review.
 - `create_releases.py`: GitHub Release automation.
-- `repos.txt`: Target repositories for development.
+- `repos-full.txt`: Target repositories for development.
 - `repos-release.txt`: Target repositories for releases.

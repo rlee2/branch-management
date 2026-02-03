@@ -19,7 +19,7 @@ def load_dotenv(path=".env"):
 # Load configuration
 load_dotenv()
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-REPO_FILE = "repos.txt"
+REPO_FILE = "repos-full.txt"
 DEFAULT_BASE_BRANCH = "master"
 
 def create_pull_request(repo_owner, repo_name, head_branch, base_branch, token):

@@ -37,7 +37,7 @@ if len(sys.argv) != 2:
 new_branch = sys.argv[1]
 
 # Define repos list file and base directory
-repos_file = 'repos.txt'
+repos_file = 'repos-full.txt'
 base_dir = 'repositories'
 
 # Create base directory if needed
