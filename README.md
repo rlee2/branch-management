@@ -30,10 +30,10 @@ A collection of Python scripts to automate multi-repository workflows on GitHub,
 ## Usage
 
 ### 1. Create Branches
-Creates and pushes a new branch (from `develop`) across all repos.
+Creates and pushes a new branch directly on GitHub (from `develop`) across all repos.
 ```bash
-# Uses repos-full.txt
-./create_branches.sh my-feature-branch
+# Uses repos-full.txt via GitHub API
+python3 create_branches.py my-feature-branch
 ```
 
 ### 2. Create Pull Requests
@@ -49,11 +49,11 @@ python3 create_prs.py my-feature-branch [base-branch]
 Generates GitHub releases for the listed repositories.
 ```bash
 # Uses repos-release.txt
-python3 create_releases.py v1.0.0
+python3 create_releases.py 1.0.0
 ```
 
 ## Project Structure
-- `create_branches.py`/`.sh`: Initial branching logic.
+- `create_branches.py`: Initial branching logic via GitHub API.
 - `create_prs.py`: GitHub PR automation with interactive review.
 - `create_releases.py`: GitHub Release automation.
 - `repos-full.txt`: Target repositories for development.

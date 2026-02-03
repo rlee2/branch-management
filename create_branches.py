@@ -1,84 +1,113 @@
-import os
-import subprocess
+#!/usr/bin/env python3
+import requests
+import json
 import sys
+import os
 
-# Function to run a command and return its output with error checking
-def run_command(command, cwd=None, env=None):
-    print(f"\nRunning: {command} in {cwd or os.getcwd()}")
+# Load environment variables (simple .env loader)
+def load_dotenv(path=".env"):
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            for line in f:
+                if "=" in line and not line.strip().startswith("#"):
+                    parts = line.strip().split("=", 1)
+                    if len(parts) == 2:
+                        key, value = parts
+                        os.environ[key] = value.strip('"').strip("'")
+
+# Load configuration
+load_dotenv()
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+REPO_FILE = "repos-full.txt"
+SOURCE_BRANCH = "develop"
+
+def create_branch_via_api(repo_owner, repo_name, new_branch, source_branch, token):
+    """
+    Creates a new branch from a source branch using the GitHub REST API.
+    """
+    # 1. Get the SHA of the source branch
+    ref_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/git/refs/heads/{source_branch}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"
+    }
+
     try:
-        result = subprocess.run(
-            command, shell=True, cwd=cwd,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=60
-        )
-        if result.returncode != 0:
-            print(f"❌ Error running command: {command} \n{result.stderr.decode('utf-8')}")
-        return result.stdout.decode('utf-8')
-    except subprocess.TimeoutExpired:
-        print(f"❌ Command timed out: {command}")
-        return ""
-# Function to load repositories from file, skipping comments and empty lines
+        response = requests.get(ref_url, headers=headers)
+        if response.status_code != 200:
+            print(f"❌ Error fetching '{source_branch}' for {repo_owner}/{repo_name}: {response.status_code} {response.text}")
+            return False
+        
+        source_sha = response.json()["object"]["sha"]
+        
+        # 2. Create the new reference
+        create_ref_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/git/refs"
+        payload = {
+            "ref": f"refs/heads/{new_branch}",
+            "sha": source_sha
+        }
+        
+        create_res = requests.post(create_ref_url, headers=headers, json=payload)
+        if create_res.status_code == 201:
+            print(f"✅ Created branch '{new_branch}' in {repo_owner}/{repo_name}")
+            return True
+        elif create_res.status_code == 422:
+            print(f"ℹ️ Branch '{new_branch}' already exists in {repo_owner}/{repo_name}")
+            return True
+        else:
+            print(f"❌ Error creating branch for {repo_owner}/{repo_name}: {create_res.status_code} {create_res.text}")
+            return False
+
+    except Exception as e:
+        print(f"❌ Exception occurred for {repo_owner}/{repo_name}: {str(e)}")
+        return False
+
 def load_repos(file_path):
+    """
+    Loads repository paths from a text file, skipping empty lines and comments.
+    """
     repos = []
     if not os.path.exists(file_path):
+        print(f"⚠️ Warning: File {file_path} not found.")
         return repos
-    with open(file_path, 'r') as file:
-        for line in file:
+        
+    with open(file_path, "r") as f:
+        for line in f:
             line = line.strip()
-            if line and not line.startswith('#'):
+            if line and not line.startswith("#"):
                 repos.append(line)
     return repos
 
-# Check for correct number of arguments
-if len(sys.argv) != 2:
-    print("Usage: python3 create_branches.py <new-branch-name>")
-    sys.exit(1)
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: python3 create_branches.py <new_branch_name>")
+        sys.exit(1)
+        
+    new_branch = sys.argv[1]
+    
+    if not GITHUB_TOKEN:
+        print("❌ Error: GITHUB_TOKEN not found in environment or .env file.")
+        sys.exit(1)
+        
+    repos = load_repos(REPO_FILE)
+    
+    if not repos:
+        print(f"❌ Error: No repositories found in {REPO_FILE}")
+        sys.exit(1)
+        
+    print(f"� Creating branch '{new_branch}' from '{SOURCE_BRANCH}' for {len(repos)} repositories via API...\n")
+    
+    success_count = 0
+    for repo_path in repos:
+        try:
+            owner, name = repo_path.split("/")
+            if create_branch_via_api(owner, name, new_branch, SOURCE_BRANCH, GITHUB_TOKEN):
+                success_count += 1
+        except ValueError:
+            print(f"❌ Invalid repo format in {REPO_FILE}: {repo_path} (Expected: owner/repo)")
 
-# Branch name to create
-new_branch = sys.argv[1]
+    print(f"\n📊 Processed {len(repos)} repositories. {success_count} success/exists.")
 
-# Define repos list file and base directory
-repos_file = 'repos-full.txt'
-base_dir = 'repositories'
-
-# Create base directory if needed
-os.makedirs(base_dir, exist_ok=True)
-
-# Load repository paths
-repos = load_repos(repos_file)
-
-if not repos:
-    print(f"⚠️ No repositories found in {repos_file}")
-    sys.exit(0)
-
-# Environment from current shell (with ssh-agent loaded)
-env = os.environ.copy()
-
-# Loop through each repository
-for repo_path_full in repos:
-    # owner/repo format
-    repo_name = repo_path_full.split('/')[-1]
-    repo_url = f"git@github.com:{repo_path_full}.git"
-    repo_path = os.path.join(base_dir, repo_name)
-
-    # Clone if not exists
-    if not os.path.exists(repo_path):
-        print(f"\n🚀 Cloning repository {repo_name} from {repo_url}...")
-        run_command(f"git clone {repo_url} {repo_path}", env=env)
-    else:
-        print(f"\n📂 Repository {repo_name} already exists, pulling latest changes...")
-        status_output = run_command("git status --porcelain", cwd=repo_path, env=env)
-        if status_output.strip():
-            print(f"⚠️ Uncommitted changes detected in {repo_name}, skipping pull.")
-            continue
-        run_command("git pull", cwd=repo_path, env=env)
-
-    # Switch to develop and pull
-    print(f"🔁 Checking out develop in {repo_name}...")
-    run_command("git checkout develop", cwd=repo_path, env=env)
-    run_command("git pull origin develop", cwd=repo_path, env=env)
-
-    # Create and push new branch
-    print(f"🌱 Creating new branch {new_branch} in {repo_name}...")
-    run_command(f"git checkout -b {new_branch}", cwd=repo_path, env=env)
-    run_command(f"git push origin {new_branch}", cwd=repo_path, env=env)
-    print(f"✅ Branch {new_branch} pushed in {repo_name}.\n")
+if __name__ == "__main__":
+    main()
