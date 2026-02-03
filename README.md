@@ -13,7 +13,7 @@ A collection of Python scripts to automate multi-repository workflows on GitHub,
 
 1. **Prerequisites**:
    - Python 3.x
-   - `requests` library: `pip install requests`
+   - Install dependencies: `pip install -r requirements.txt`
    - GitHub Personal Access Token (PAT) with `repo` scope.
 
 2. **Environment**:
