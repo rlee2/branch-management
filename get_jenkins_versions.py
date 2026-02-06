@@ -77,10 +77,10 @@ def login_mode(driver):
     print("   Next time, run without --login to fetch versions.")
 
 
-def get_latest_build_number(driver, repo_name):
+def get_latest_build_info(driver, repo_name):
     """
-    Navigate to Jenkins job page and find the latest build number.
-    Returns the build number (e.g., "15" from "#15") or None if not found.
+    Navigate to Jenkins job page, find the latest build number and check Push Docker status.
+    Returns (build_number, docker_success_bool) or (None, False).
     """
     url = f"{JENKINS_BASE_URL}{JENKINS_VIEW_PATH}/{repo_name}/job/master/"
     
@@ -89,37 +89,79 @@ def get_latest_build_number(driver, repo_name):
         WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        time.sleep(3)  # Wait for dynamic content
+        time.sleep(5)  # Wait for Stage View to load
         
         page_source = driver.page_source
         
         # Check if we're on a login page
         if "login" in page_source.lower() and "password" in page_source.lower():
             print(f"  ⚠️ Jenkins requires login! Run with --login first")
-            return None
+            return None, False
         
+        # 1. Find the latest build number from the page
         # Look for build links in Jenkins format
         build_link_pattern = rf'/job/{repo_name}/job/master/(\d+)/'
         build_numbers = re.findall(build_link_pattern, page_source)
         
         if not build_numbers:
-            # Try finding links that look like build numbers in the build history
             build_numbers = re.findall(r'href=["\'](\d+)/["\']', page_source)
         
-        if build_numbers:
-            latest_build = max(int(num) for num in build_numbers)
-            return str(latest_build)
+        if not build_numbers:
+            return None, False
+            
+        latest_build = max(int(num) for num in build_numbers)
+        build_str = str(latest_build)
         
-        return None
-    except TimeoutException:
-        print(f"  ⚠️ Timeout loading page for {repo_name}")
-        return None
-    except WebDriverException as e:
-        print(f"  ⚠️ Browser error for {repo_name}: {str(e)[:100]}")
-        return None
+        # 2. Check Push Docker status
+        docker_success = True # Default to true if we can't find the info
+        headers = driver.find_elements(By.CSS_SELECTOR, "th.stage-header-name-")
+        if not headers:
+            headers = driver.find_elements(By.TAG_NAME, "th")
+            
+        push_docker_idx = -1
+        for i, h in enumerate(headers):
+            if "Push Docker" in h.text:
+                push_docker_idx = i
+                break
+        
+        if push_docker_idx != -1:
+            rows = driver.find_elements(By.CSS_SELECTOR, "tr.job-row")
+            if not rows:
+                rows = driver.find_elements(By.TAG_NAME, "tr")
+            
+            target_row = None
+            for row in rows:
+                if f"#{build_str}" in row.text:
+                    target_row = row
+                    break
+            
+            if target_row:
+                cells = target_row.find_elements(By.TAG_NAME, "td")
+                if len(cells) > push_docker_idx:
+                    cell = cells[push_docker_idx]
+                    classes = cell.get_attribute('class') or ""
+                    
+                    # Log the status found
+                    if "SUCCESS" in classes:
+                        print(f"  🐳 Push Docker: SUCCESS")
+                        docker_success = True
+                    else:
+                        docker_success = False
+                        # Try to extract a clean status name if possible (e.g., 'FAILED', 'IN_PROGRESS')
+                        status = "NOT SUCCESSFUL"
+                        for s in ["FAILED", "IN_PROGRESS", "ABORTED", "UNSTABLE"]:
+                            if s in classes:
+                                status = s
+                                break
+                        print(f"  🐳 Push Docker: {status} (Class: {classes})")
+                else:
+                    print(f"  ⚠️ Could not find stage cell for Push Docker")
+        
+        return build_str, docker_success
+
     except Exception as e:
-        print(f"  ⚠️ Error getting build number for {repo_name}: {e}")
-        return None
+        print(f"  ⚠️ Error getting build info for {repo_name}: {e}")
+        return None, False
 
 
 def get_release_version(driver, repo_name, build_number):
@@ -198,12 +240,12 @@ def main():
             
             print(f"🔍 Processing: {repo_name}")
             
-            # Get latest build number
-            build_number = get_latest_build_number(driver, repo_name)
+            # Get latest build number and Docker status
+            build_number, docker_success = get_latest_build_info(driver, repo_name)
             
             if not build_number:
                 print(f"  ⚠️ Could not find latest build number")
-                results.append((repo_name, "N/A"))
+                results.append((repo_name, "N/A", True))
                 continue
             
             print(f"  📦 Latest build: #{build_number}")
@@ -213,10 +255,10 @@ def main():
             
             if release_version:
                 print(f"  ✅ Release version: {release_version}")
-                results.append((repo_name, release_version))
+                results.append((repo_name, release_version, docker_success))
             else:
                 print(f"  ⚠️ Could not extract release version")
-                results.append((repo_name, "N/A"))
+                results.append((repo_name, "N/A", docker_success))
             
             time.sleep(1)  # Small delay between requests
         
@@ -225,8 +267,9 @@ def main():
         print("📊 SUMMARY: Repository -> Release Version")
         print("=" * 60)
         
-        for repo_name, version in results:
-            print(f"{repo_name} -> {version}")
+        for repo_name, version, docker_ok in results:
+            warning = "" if docker_ok else " ⚠️ [Push Docker Failed!]"
+            print(f"{repo_name} -> {version}{warning}")
         
         return results
     
